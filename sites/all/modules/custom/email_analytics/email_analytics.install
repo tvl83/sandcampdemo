@@ -1,0 +1,138 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function email_analytics_schema() {
+	$t = get_t();
+
+	$schema['email_analytics_module_keys'] = array(
+		'description' => $t('Stores email ids for which analytics needs to be captured.'),
+		'fields' => array(
+			'email_module_key' => array(
+				'description' => $t('Module key of the email.'),
+				'type' => 'varchar',
+				'length' => 63,
+				'not null' => TRUE,
+			),
+		),
+		'primary key' => array('email_module_key'),
+	);
+
+	$schema['email_analytics_info'] = array(
+		'description' => $t('Stores details about each email sent.'),
+		'fields' => array(
+			'eid' => array(
+				'description' => $t('The primary identifier for an email.'),
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'email_to' => array(
+				'description' => $t('The email address where the email is sent.'),
+				'type' => 'varchar',
+				'length' => 63,
+				'not null' => TRUE,
+			),
+			'uid' => array(
+				'description' => $t('The user id to whom the email is sent.'),
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => FALSE,
+			),
+			'email_hash' => array(
+				'description' => $t('Hash to identify the email.'),
+				'type' => 'varchar',
+				'length' => 128,
+				'not null' => TRUE,
+			),
+			'module_key' => array(
+				'description' => $t('Email module key.'),
+				'type' => 'varchar',
+				'length' => 63,
+				'not null' => TRUE,
+			),
+			'subject' => array(
+				'description' => $t('Subject of the email.'),
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+			),
+			'created' => array(
+				'description' => $t('Unix timestamp when the email was sent.'),
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'entity_id' => array(
+				'description' => $t('An id to which this entry needs to be linked.'),
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => FALSE,
+			),
+			'data' => array(
+				'description' => $t('Any data that needs to be stored.'),
+				'type' => 'varchar',
+				'length' => 1023,
+				'not null' => FALSE,
+			),
+		),
+		'primary key' => array('eid'),
+		'unique keys' => array(
+			'email_hash' => array('email_hash'),
+		),
+		'foreign keys' => array(
+			'uid' => array(
+				'table' => 'users',
+				'columns' => array('uid' => 'uid'),
+			),
+		),
+		'indexes' => array(
+			'hash_eid_entity' => array('email_hash', 'eid', 'entity_id'),
+		),
+	);
+
+	$schema['email_analytics_data'] = array(
+		'description' => $t('Stores analytics data about email.'),
+		'fields' => array(
+			'eid' => array(
+				'description' => $t('Id of the email.'),
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'created' => array(
+				'description' => $t('Unix timestamp when the action is recorded.'),
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'action' => array(
+				'description' => $t('Action taken.'),
+				'type' => 'varchar',
+				'length' => 15,
+				'not null' => TRUE,
+			),
+			'url' => array(
+				'description' => $t('URL of the page which was opened.'),
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => FALSE,
+			),
+			'page_title' => array(
+				'description' => $t('Title of the page which was opened.'),
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => FALSE,
+			),
+		),
+		'foreign keys' => array(
+			'eid' => array(
+				'table' => 'email_analytics_info',
+				'columns' => array('eid' => 'eid'),
+			),
+		),
+	);
+
+	return $schema;
+}

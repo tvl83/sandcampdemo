@@ -1,0 +1,8 @@
+name = Email Analytics
+description = Capture email analytics of the emails sent by the website.
+version = 7.x-0.1
+
+package = Custom
+
+core = 7.x
+files[] = email_analytics.module

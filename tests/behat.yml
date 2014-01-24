@@ -1,0 +1,13 @@
+default:
+  extensions:
+    Behat\MinkExtension\Extension:
+      sahi: ~
+      base_url: http://localhost/sandcamp-demo
+      javascript_session: sahi
+      default_session: sahi
+      files_path: assets
+  formatter:
+    name: html
+    parameter:
+      name: html
+      output_path: results.html

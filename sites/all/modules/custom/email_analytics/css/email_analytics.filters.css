@@ -1,0 +1,39 @@
+#email-analytics-main-report-filter-form .form-item {
+	float: left;
+}
+
+#email-analytics-main-report-filter-form .form-item label {
+	float: left;
+	margin-right: 20px;
+}
+
+#email-analytics-main-report-filter-form .form-item select, #email-analytics-main-report-filter-form .form-item input.form-text {
+	margin-right: 80px;
+}
+
+#email-analytics-main-report-filter-form .form-item.form-type-date-popup .date-padding {
+	padding: 0;
+}
+
+#email-analytics-main-report-filter-form .form-item.form-type-date-popup .date-padding label {
+	display: none;
+}
+
+#email-analytics-main-report-filter-form .form-item.form-type-date-popup .date-padding .form-item.form-type-textfield {
+	padding: 0;
+}
+
+#email-analytics-main-report-filter-form .form-item.form-type-date-popup .date-padding .form-item.form-type-textfield .description {
+	display: none;
+}
+
+#email-analytics-main-report-filter-form .container-inline-date {
+	padding: 9px 0;
+	clear: none;
+	float: left;
+}
+
+#email-analytics-main-report-filter-form input.form-submit {
+	margin-top: 6px;
+}
+

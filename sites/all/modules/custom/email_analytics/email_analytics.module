@@ -1,0 +1,344 @@
+<?php
+
+/**
+ * @file
+ * Email analytics of the mails sent by the website.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function email_analytics_permission() {
+  return array(
+    'administer email analytics' => array(
+      'title' => t('Administer email analytics'),
+      'description' => t('Configure the email analytics module.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function email_analytics_menu() {
+  $items = array();
+
+  $items['admin/config/system/email_analytics'] = array(
+    'title' => 'Email analytics',
+    'description' => t('Capture email analytics data.'),
+    'access arguments' => array('administer email analytics'),
+    'access callback' => 'user_access',
+    'file' => 'email_analytics.admin.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('email_analytics_admin_config_form'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/config/system/email_analytics_test'] = array(
+    'title' => 'Email analytics Test',
+    'description' => t('Test email analytics.'),
+    'access arguments' => array('administer email analytics'),
+    'access callback' => 'user_access',
+    'file' => 'email_analytics.admin.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('email_analytics_test_form'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['email_analytics'] = array(
+    'title' => 'Email open analytics',
+    'description' => t('Path to track email open rates.'),
+    'access callback' => TRUE,
+    'page callback' => 'email_analytics_track_email_open',
+    'file' => 'email_analytics.pages.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/reports/email_analytics'] = array(
+    'title' => 'Email analytics',
+    'description' => t('View email analytics data.'),
+    'access callback' => TRUE,
+    'page callback' => 'email_analytics_view',
+    'file' => 'email_analytics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_mail_alter().
+ */
+function email_analytics_mail_alter(&$message) {
+  $email_id = $message['id'];
+  $count = db_select('email_analytics_module_keys', 'k')
+    ->condition('k.email_module_key', $email_id)
+    ->countQuery()
+    ->execute()
+    ->fetchField();
+
+  if (!$count) {
+    return;
+  }
+
+  // This email needs to be tracked.
+  // Get a hash of this email.
+  $hash = md5($message['to'] . microtime());
+
+  module_load_include('inc', 'email_analytics', 'email_analytics.pages');
+
+  $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed; delsp=yes';
+
+  // Insert a tracking image.
+  email_analytics_insert_tracking_image($hash, $message['body']);
+
+  $message['body'] = implode("\n\n", $message['body']);
+
+  // Convert to html entities to avoid text scrambling due to encoding especially for non-Latin characters.
+  $message['body'] = mb_convert_encoding($message['body'], 'HTML-ENTITIES', 'UTF-8');
+
+  // Insert tracking to all links.
+  email_analytics_insert_link_tracking($hash, $message['body']);
+  $message['body'] = array($message['body']);
+
+  // Insert the details about this email in the database.
+  $account = user_load_by_mail($message['to']);
+  $query = db_insert('email_analytics_info')
+    ->fields(array(
+      'email_to' => t('@to', array('@to' => $message['to'])),
+      'uid' => ($account === FALSE) ? NULL : $account->uid,
+      'created' => time(),
+      'email_hash' => $hash,
+      'subject' => $message['subject'],
+      'module_key' => $message['id'],
+      'entity_id' => (!empty($message['params']['email_analytics']['entity_id'])) ?
+          $message['params']['email_analytics']['entity_id'] : NULL,
+      'data' => (!empty($message['params']['email_analytics']['data'])) ?
+          $message['params']['email_analytics']['data'] : NULL,
+    ));
+  $eid = $query
+    ->execute();
+}
+
+/**
+ * Implements hook_init().
+ *
+ * The function checks for email_analytics_hash in the query string and cookie email_analytics_hashes. If none exists, then the function does nothing.
+ * If hash does not exist but the cookie exists but the cookie exists, then extend expiry of all cookies by half an hour.
+ * If hash exists, then get the corresponsing email_id. If no such email_id exists, then the function does nothing.
+ * If hash and the corresponding email_id exist, set the cookie with that hash name and email_id. Record this event in the database.
+ */
+function email_analytics_init() {
+  // Don't do anything if there is no email analytics hash or a cookie set.
+  if (empty($_GET['email_analytics_hash']) && empty($_COOKIE['email_analytics_hashes'])) {
+    return;
+  }
+
+  // If the email was opened, then /email_analytics link is requested. Don't do anything in such a case.
+  if ($_GET['q'] == 'email_analytics') {
+    return;
+  }
+
+  $hash = !empty($_GET['email_analytics_hash']) ? $_GET['email_analytics_hash'] : '';
+  $cookie = !empty($_COOKIE['email_analytics_hashes']) ? $_COOKIE['email_analytics_hashes'] : array();
+
+  // Extend the cookie expiry time to half an hour more for all hashes.
+  $now = time();
+  foreach ($cookie as $cookie_hash => $eid) {
+    setcookie('email_analytics_hashes[' . $cookie_hash . ']', $eid, $now + 1800);
+  }
+
+  // If hash does not exist, we don't need to record the event.
+  if (empty($hash)) {
+    return;
+  }
+
+  // Hash exists.
+  // Make sure that this hash exists in the info table.
+  $eid = db_select('email_analytics_info', 'i')
+    ->fields('i', array('eid'))
+    ->condition('i.email_hash', $hash)
+    ->execute()
+    ->fetchField();
+
+  if (!$eid) {
+    // Information about this email does not exist.
+    return;
+  }
+
+  // Valid hash exists. First check if this hash exists in the cookie.
+  $cookie[$hash] = $eid;
+  setcookie('email_analytics_hashes[' . $hash . ']', $cookie[$hash], $now + 1800);
+
+  // Record this click in the database.
+  $query = $_GET;
+  unset($query['email_analytics_hash']);
+  unset($query['q']);
+  $url = url($_GET['q'], array('query' => $query));
+
+  $title = drupal_get_title();
+
+  module_load_include('inc', 'email_analytics', 'email_analytics.pages');
+  email_analytics_write_data($eid, 'click', $url, $title);
+}
+
+/**
+ * Implements hook_theme().
+ */
+function email_analytics_theme() {
+  return array(
+    'email_analytics_main_report' => array(
+      'variables' => array(
+        'result' => NULL,
+        'header' => NULL,
+      ),
+      'file' => 'email_analytics.admin.inc',
+    ),
+  );
+}
+
+/**
+ * Implements hook_email_analytics_main_report_header_alter().
+ */
+function email_analytics_email_analytics_main_report_header_alter(&$header) {
+  // Go through all the header cells, if there is a uid field or key, then add username key or field.
+  $uid_exists = FALSE;
+  $uid_weight = NULL;
+  foreach ($header as $key => $header_value) {
+    if (!empty($header_value['field']) && $header_value['field'] == 'uid') {
+      $uid_exists = TRUE;
+      $header[$key]['access'] = FALSE;
+      if (!empty($header_value['weight'])) {
+        $uid_weight = $header_value['weight'];
+      }
+      break;
+    }
+    elseif (!empty($header_value['key']) && $header_value['key'] == 'uid') {
+      $uid_exists = TRUE;
+      $header[$key]['access'] = FALSE;
+      if (!empty($header_value['weight'])) {
+        $uid_weight = $header_value['weight'];
+      }
+      break;
+    }
+  }
+  if ($uid_exists) {
+    $username_header = array(
+      'data' => 'Username',
+      'key' => 'username',
+    );
+    if (!is_null($uid_weight)) {
+      $username_header['weight'] = $uid_weight + 1;
+    }
+    $header[] = $username_header;
+  }
+}
+
+/**
+ * Implements hook_preprocess_email_analytics_main_report().
+ */
+function email_analytics_preprocess_email_analytics_main_report(&$vars) {
+  $result = $vars['result'];
+  $header = $vars['header'];
+
+  $uids = array();
+  foreach ($result as $record) {
+    if (!empty($record->uid) && !in_array($record->uid, $uids)) {
+      $uids[] = $record->uid;
+    }
+  }
+
+  $accounts = user_load_multiple($uids);
+
+  foreach ($result as $key => $record) {
+    if (!empty($record->uid) && !empty($accounts[$record->uid])) {
+      $vars['result'][$key]->username = l(format_username($accounts[$record->uid]), 'user/' . $record->uid);
+    }
+
+    if (!empty($record->created)) {
+      $vars['result'][$key]->created = format_date($vars['result'][$key]->created, 'short');
+    }
+
+    if (!empty($record->opened)) {
+      $vars['result'][$key]->opened = format_date($vars['result'][$key]->opened, 'short');
+    }
+
+    if (!empty($record->clicked)) {
+      $vars['result'][$key]->clicked = format_date($vars['result'][$key]->clicked, 'short');
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function email_analytics_form_email_analytics_main_report_filter_form_alter(&$form, &$form_state) {
+  $result = $form['filter']['result']['#value'];
+
+  $uids = array();
+  foreach ($result as $record) {
+    if (!empty($record->uid) && !in_array($record->uid, $uids)) {
+      $uids[] = $record->uid;
+    }
+  }
+
+  $accounts = user_load_multiple($uids);
+
+  $usernames = array();
+  foreach ($result as $record) {
+    if (!empty($record->uid) && !empty($accounts[$record->uid])) {
+      $usernames[$record->uid] = format_username($accounts[$record->uid]);
+    }
+  }
+
+  // Add username to filters.
+  if (!empty($form['filter']['filters']['uid'])) {
+    $form['filter']['filters']['username'] = array(
+      '#type' => 'select',
+      '#title' => t('Username'),
+      '#options' => $usernames,
+      '#empty_option' => '- None -',
+      '#weight' => -16,
+    );
+    if (!empty($_SESSION['email_analytics_main_report']['username'])) {
+      $form['filter']['filters']['username']['#default_value'] = $_SESSION['email_analytics_main_report']['username'];
+    }
+
+    $form['filter']['filters']['uid']['#access'] = FALSE;
+
+    $form['#submit'][] = 'email_analytics_form_email_analytics_main_report_filter_form_submit';
+  }
+}
+
+/**
+ * Submit handler for username in email analytics main report.
+ */
+function email_analytics_form_email_analytics_main_report_filter_form_submit($form, &$form_state) {
+  if ($form_state['triggering_element']['#name'] == 'submit') {
+    // Save the values in $_SESSION.
+    if (!empty($form_state['values']['username'])) {
+      $_SESSION['email_analytics_main_report']['username'] = $form_state['values']['username'];
+    }
+    else {
+      unset($_SESSION['email_analytics_main_report']['username']);
+    }
+  }
+}
+
+/**
+ * Implements hook_query_QUERY_ID_alter().
+ */
+function email_analytics_query_email_analytics_main_report_alter(&$query) {
+  if (!empty($_SESSION['email_analytics_main_report']['username'])) {
+    $query->condition('eai.uid', $_SESSION['email_analytics_main_report']['username']);
+  }
+}
+
+
+/**
+ * Implements hook_mail().
+ */
+function email_analytics_mail($key, &$message, $params) {
+  $message['subject'] = t('Email Analytics Test');
+  $message['body'][] = '<a href="http://localhost/sandcamp-demo/node/1">Test</a>';
+}

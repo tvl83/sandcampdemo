@@ -1,0 +1,5 @@
+name = Demo
+description = Demo module to demonstrate Continuous Integration.
+package = Custom
+core = 7.x
+files[] = node.module

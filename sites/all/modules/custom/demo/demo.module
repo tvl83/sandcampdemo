@@ -1,0 +1,46 @@
+<?php
+
+/**
+ * @file
+ *
+ * Demo module to demonstrate Continuous Integration.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function demo_permission() {
+  return array(
+    'access next integer page' => array(
+      'title' => t('access next integer page'),
+      'description' => t('Access the page that shows next integer.'),
+    )
+  );
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function demo_menu() {
+  $items = array();
+  $items['show-next-integer/%'] = array(
+    'title' => 'Show next integer',
+    'description' => t('Shows the next integer after the number given in the argument'),
+    'page callback' => 'demo_show_next_integer',
+    'page arguments' => array(1),
+    'access arguments' => array('access next integer page'),
+  );
+  return $items;
+}
+
+
+/**
+ * Page callback for the next integer page.
+ */
+function demo_show_next_integer($num) {
+  module_load_include('inc', 'demo', 'Num.class');
+  $numClass = new Num($num);
+  $next_integer = $numClass->getNextInteger();
+  return t('The next integer is @integer.', array('@integer' => $next_integer));
+}
